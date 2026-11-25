@@ -814,6 +814,16 @@ test("img-no-alt accepts Angular [alt] bindings and Svelte {alt} shorthand", () 
   // Plain alt and Vue :alt keep working, and a missing alt is still reported.
   assert.deepStrictEqual(rulesFor('<img src="x.png" alt="hi">\n', "a.html"), []);
   assert.deepStrictEqual(rulesFor('<img :src="u" :alt="n">\n', "a.vue"), []);
+  // HTML-style bare alt attributes count as an empty alt value across web templates.
+  assert.deepStrictEqual(rulesFor('<img src="divider.png" alt>\n', "a.html"), []);
+  assert.deepStrictEqual(rulesFor('<img src="divider.png" alt />\n', "a.vue"), []);
+  assert.deepStrictEqual(rulesFor('<img src="divider.png" alt/>\n', "A.svelte"), []);
+  assert.deepStrictEqual(rulesFor('<img src="divider.png" alt>\n', "a.astro"), []);
+  assert.deepStrictEqual(rulesFor('<img alt src="divider.png">\n', "index.html"), []);
+  assert.deepStrictEqual(rulesFor('<img src="divider.png" alt />\n', "index.html"), []);
+  assert.deepStrictEqual(rulesFor('<img src="photo.png">\n', "index.html"), ["img-no-alt"]);
+  // JSX treats a bare alt as true rather than useful alternative text.
+  assert.deepStrictEqual(rulesFor('<img src="divider.png" alt />\n', "a.jsx"), ["img-no-alt"]);
   assert.deepStrictEqual(rulesFor('<img [src]="u.avatar">\n', "a.component.html"), ["img-no-alt"]);
   assert.deepStrictEqual(rulesFor("<img {src} />\n", "A.svelte"), ["img-no-alt"]);
 });
