@@ -131,6 +131,38 @@ test("oops-error ignores log calls and thrown errors", () => {
   assert.deepStrictEqual(scanSource('const msg = "Oops, something went wrong";\n', "a.ts").map((f) => f.rule), ["oops-error"]);
 });
 
+test("oops-error flags Whoops but not loops or hoops", () => {
+  // Issue #129: the issue's repro, both lines reported.
+  const src = 'export function A() {\n  return <p>Oops! We could not load your orders.</p>;\n}\nexport function B() {\n  return <p>Whoops! We could not load your orders.</p>;\n}\n';
+  assert.deepStrictEqual(
+    scanSource(src, "ErrorState.tsx").filter((f) => f.rule === "oops-error").map((f) => f.line),
+    [2, 5],
+  );
+  // Words that only contain the letters stay quiet.
+  assert.deepStrictEqual(scanSource('const a = "loops"; const b = "hoops";\n', "a.ts"), []);
+  assert.deepStrictEqual(scanSource('const a = "whoopsie";\n', "a.ts"), []);
+});
+
+test("oops-error flags visible copy after a log call on the same line", () => {
+  // CodeRabbit on #131: the old guard skipped every match after a log call
+  // earlier on the line, so visible copy after the call went unflagged.
+  assert.deepStrictEqual(
+    scanSource('console.error(err); return <p>Whoops!</p>;\n', "a.tsx").map((f) => f.line),
+    [1],
+  );
+  assert.deepStrictEqual(
+    scanSource('console.error("Something went wrong"); return <p>Oops!</p>;\n', "a.tsx").map((f) => f.line),
+    [1],
+  );
+  assert.deepStrictEqual(
+    scanSource('throw new Error("x"); return <p>Oops</p>;\n', "a.tsx").map((f) => f.line),
+    [1],
+  );
+  // A match still inside the call stays quiet, even with a paren in the message.
+  assert.deepStrictEqual(scanSource('console.error("a)b", "Oops");\n', "a.ts"), []);
+  assert.deepStrictEqual(scanSource('console.log("a"); console.error("Oops");\n', "a.ts"), []);
+});
+
 test("ignore comments from before the rename still work", () => {
   const src = '// unslopovich-ignore oops-error\nconst a = "Oops";\nconst b = "Oops"; // unslopovich-ignore\nconst c = "Oops";\n';
   assert.deepStrictEqual(scanSource(src, "a.ts").map((f) => f.line), [4]);
