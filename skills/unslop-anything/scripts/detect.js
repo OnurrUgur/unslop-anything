@@ -1251,7 +1251,29 @@ const rules = [
     fix: "Say what the screen does in plain words, or delete the line.",
     find({ code }) {
       const re = /unlock (?:your|the) (?:full )?potential|\bseamless(?:ly)?\b|\beffortless(?:ly)?\b|\bsupercharg\w*|all in one place|\bnext[- ]level\b|\belevate your\b|\bgame[- ]?changer\b|\brevolutioni[sz]\w*|\bunleash\b|\bempower(?:s|ing)? you/i;
-      return [...matches(re, code)].map((m) => m.index);
+      const hits = [];
+      for (const m of matches(re, code)) {
+        // The line up to the match, at most 300 characters back.
+        const back = code.slice(Math.max(0, m.index - 300), m.index);
+        const before = back.slice(back.lastIndexOf("\n") + 1);
+        const after = code.slice(m.index + m[0].length, m.index + m[0].length + 3);
+        // A package name in a module string (`from "@unleash/..."`, `require("unleash-client")`, also
+        // with the string on the next line), a name on an import line, or a name inside a multi-line
+        // `import { ... }` clause is not copy.
+        if (/\b(?:import|export)\b[^;"'`]*\bfrom\s*["'`][^"'`\n]*$/.test(back)) continue;
+        if (/\b(?:import|require)\s*\(\s*["'`][^"'`\n]*$/.test(back)) continue;
+        // a side-effect import: `import "unleash-client";`
+        if (/(?:^|[\n;])\s*import\s+["'`][^"'`\n]*$/.test(back)) continue;
+        if (/^\s*import\b[^"'`;]*$/.test(before)) continue;
+        if (/(?:^|[\n;])\s*(?:import|export)\s+(?:type\s+)?(?:\w+\s*,\s*)?\{[^};`]*$/.test(code.slice(Math.max(0, m.index - 2000), m.index))) continue;
+        // Nor is unleash used as code: `const unleash = ...`, `new Unleash(...)`,
+        // `unleash.isEnabled(...)`, `{ unleash }`, `{ unleash: cfg }`.
+        if (/^unleash$/i.test(m[0]) && /\b(?:const|let|var|new)\s+$/.test(before)) continue;
+        // An object key or destructured name needs a brace or a key colon, so `Dream, unleash, create.` is copy.
+        if (m[0] === "unleash" && (/^\.[A-Za-z_$]/.test(after) || (/\{[^{}]*$/.test(before) && /[{,]\s*$/.test(before) && /^\s*[:,}]/.test(after)))) continue;
+        hits.push(m.index);
+      }
+      return hits;
     },
   },
   {

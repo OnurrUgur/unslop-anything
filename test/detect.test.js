@@ -163,6 +163,41 @@ test("oops-error flags visible copy after a log call on the same line", () => {
   assert.deepStrictEqual(scanSource('console.log("a"); console.error("Oops");\n', "a.ts"), []);
 });
 
+test("buzzword-copy skips package names and identifiers, not copy", () => {
+  // Issue #140: the Unleash feature-flag SDK is a package, not marketing filler.
+  const buzz = (src, file) => scanSource(src, file).filter((f) => f.rule === "buzzword-copy").map((f) => f.line);
+  const checkout = 'import { useFlag } from "@unleash/proxy-client-react";\n\nexport function Checkout() {\n  const enabled = useFlag("new-checkout");\n  return <p>{enabled ? "New" : "Old"}</p>;\n}\n';
+  assert.deepStrictEqual(buzz(checkout, "Checkout.tsx"), []);
+  // Imports, export ... from and require
+  assert.deepStrictEqual(buzz('export { useFlag } from "@unleash/proxy-client-react";\n', "flags.ts"), []);
+  assert.deepStrictEqual(buzz('const { UnleashClient } = require("unleash-client");\n', "flags.js"), []);
+  assert.deepStrictEqual(buzz('import Unleash from "unleash-client";\n', "flags.ts"), []);
+  assert.deepStrictEqual(buzz('import {\n  Unleash,\n  useFlag,\n} from "@unleash/proxy-client-react";\n', "flags.ts"), []);
+  assert.deepStrictEqual(buzz('import { useFlag } from\n  "@unleash/proxy-client-react";\n', "flags.ts"), []);
+  assert.deepStrictEqual(buzz('const sdk = require(\n  "unleash-client");\n<h1>Unleash your team</h1>\n', "flags.ts"), [3]);
+  assert.deepStrictEqual(buzz('const m = await import(\n  "@unleash/proxy-client-react");\n<h1>Unleash your team</h1>\n', "flags.ts"), [3]);
+  assert.deepStrictEqual(buzz('import "unleash-client";\n<h1>Unleash your team</h1>\n', "flags.ts"), [2]);
+  assert.deepStrictEqual(buzz('import "unleash-client"; const title = "Unleash your team";\n', "flags.ts"), [1]);
+  // Identifiers
+  assert.deepStrictEqual(buzz('const unleash = new UnleashClient({ url });\nif (unleash.isEnabled("x")) start();\n', "flags.ts"), []);
+  assert.deepStrictEqual(buzz("const client = new Unleash({ url });\n", "flags.ts"), []);
+  assert.deepStrictEqual(buzz("const { unleash } = useApp();\nconst cfg = { unleash: { url }, other: 1 };\n", "flags.ts"), []);
+  assert.deepStrictEqual(buzz("const { client, unleash } = useApp();\n", "flags.ts"), []);
+  assert.deepStrictEqual(buzz("const { client, unleash, other } = useApp();\n", "flags.ts"), []);
+  // Copy is still flagged, also next to an import or after a multi-line import clause.
+  assert.deepStrictEqual(buzz("<h1>Unleash your creativity</h1>\n", "Hero.tsx"), [1]);
+  assert.deepStrictEqual(buzz('const title = "Unleash your team";\n', "copy.ts"), [1]);
+  assert.deepStrictEqual(buzz("<p>Time to unleash. Start now.</p>\n", "Cta.tsx"), [1]);
+  assert.deepStrictEqual(buzz('import { useFlag } from "sdk"; const title = "Unleash your team";\n', "copy.ts"), [1]);
+  assert.deepStrictEqual(buzz('import type {\n  Unleash,\n} from "unleash-client";\n<h1>Unleash your team</h1>\n', "Hero.tsx"), [4]);
+  assert.deepStrictEqual(buzz("<h2>Fast.Secure.Seamless.Simple.</h2>\n", "Hero.tsx"), [1]);
+  assert.deepStrictEqual(buzz("<h1>Dream, unleash, create.</h1>\n", "Hero.tsx"), [1]);
+  // `from` in copy is not an import.
+  assert.deepStrictEqual(buzz('<p>Choose from "seamless integrations"</p>\n', "Cta.tsx"), [1]);
+  assert.deepStrictEqual(buzz('<p>Choose from\n"seamless integrations"</p>\n', "Cta.tsx"), [2]);
+  assert.deepStrictEqual(buzz('import x from "y";\n<h1>Unleash your team</h1>\n', "Hero.tsx"), [2]);
+});
+
 test("ignore comments from before the rename still work", () => {
   const src = '// unslopovich-ignore oops-error\nconst a = "Oops";\nconst b = "Oops"; // unslopovich-ignore\nconst c = "Oops";\n';
   assert.deepStrictEqual(scanSource(src, "a.ts").map((f) => f.line), [4]);
