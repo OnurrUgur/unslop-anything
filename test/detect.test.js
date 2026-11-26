@@ -632,6 +632,52 @@ test("gradient-text flags text brushes only, not gradient backgrounds (issue #66
   assert.deepStrictEqual(scanSource(copied, "a.kt").map((f) => f.rule), ["gradient-text"]);
 });
 
+test("gradient-text flags Flutter text painted with a gradient shader (issue #147)", () => {
+  const lines = (src) => scanSource(src, "title.dart").filter((f) => f.rule === "gradient-text").map((f) => f.line);
+  const title = "Text('Welcome', style: TextStyle(foreground: Paint()..shader = const LinearGradient(colors: [Color(0xFF0EA5E9), Color(0xFF22C55E)]).createShader(bounds)))\n";
+  assert.deepStrictEqual(lines(title), [1]);
+  assert.deepStrictEqual(lines("TextStyle(foreground: Paint()..shader = RadialGradient(colors: c).createShader(r))\n"), [1]);
+  assert.deepStrictEqual(lines("TextStyle(foreground: Paint()..shader=SweepGradient(colors: c).createShader(r))\n"), [1]);
+  assert.deepStrictEqual(lines("TextStyle(foreground: Paint()..shader = ui.Gradient.linear(a, b, colors))\n"), [1]);
+  // An import prefix other than ui, and spaces inside Paint( ).
+  assert.deepStrictEqual(lines("TextStyle(foreground: Paint()..shader = dart_ui.Gradient.linear(a, b, colors))\n"), [1]);
+  assert.deepStrictEqual(lines("TextStyle(foreground: Paint()..shader = material.LinearGradient(colors: c).createShader(r))\n"), [1]);
+  assert.deepStrictEqual(lines("TextStyle(foreground: Paint( )..shader = LinearGradient(colors: c).createShader(r))\n"), [1]);
+  // Other cascades may come first, also on their own lines as dart format writes them.
+  assert.deepStrictEqual(lines("TextStyle(foreground: Paint()..style = PaintingStyle.fill..shader = LinearGradient(colors: c).createShader(r))\n"), [1]);
+  assert.deepStrictEqual(lines("TextStyle(\n  foreground: Paint()\n    ..color = Colors.red.withOpacity(0.5)\n    ..shader = const LinearGradient(colors: c).createShader(r),\n)\n"), [2]);
+  // dart format moves a long value to the line after the =.
+  assert.deepStrictEqual(lines("TextStyle(\n  foreground: Paint()\n    ..color =\n        Colors.black\n    ..shader = LinearGradient(colors: c).createShader(r),\n)\n"), [2]);
+  assert.deepStrictEqual(lines("TextStyle(\n  foreground: Paint()\n    ..color =\n        Colors.black,\n  background: Paint()..shader = LinearGradient(colors: c).createShader(r),\n)\n"), []);
+  // A solid paint is not gradient text, even with a gradient later on the line.
+  assert.deepStrictEqual(lines("Text('Hi', style: TextStyle(foreground: Paint()..color = Colors.black))\n"), []);
+  assert.deepStrictEqual(lines("Text('a', style: TextStyle(foreground: Paint()..color = c)); final p = Paint()..shader = LinearGradient(colors: c).createShader(r);\n"), []);
+  assert.deepStrictEqual(lines("TextStyle(foreground: (Paint()..shader = LinearGradient(colors: c).createShader(r)))\n"), [1]);
+  assert.deepStrictEqual(lines("TextStyle(foreground: Paint()..shader = (LinearGradient(colors: c)).createShader(r))\n"), [1]);
+  // The next argument is not part of the foreground paint.
+  assert.deepStrictEqual(lines("TextStyle(foreground: Paint()..color = c, background: Paint()..shader = LinearGradient(colors: c).createShader(r))\n"), []);
+  // Nested and multi-line calls in an earlier cascade.
+  assert.deepStrictEqual(lines("TextStyle(foreground: Paint()..color = Colors.red.withAlpha(alpha.round())..shader = LinearGradient(colors: c).createShader(r))\n"), [1]);
+  assert.deepStrictEqual(lines("TextStyle(\n  foreground: Paint()\n    ..color = Color.fromARGB(\n      255, 0, 0, 0)\n    ..shader = LinearGradient(colors: c).createShader(r),\n)\n"), [2]);
+  assert.deepStrictEqual(lines("final p = Paint()..shader = ui.Gradient.linear(a, b, colors);\n"), []);
+  // A long cascade on one line stays fast: a value cannot run on into the next .. operator.
+  const chain = Array.from({ length: 24 }, (_, i) => `..p${i} = Colors.red.withAlpha(${i})`).join("");
+  const started = Date.now();
+  assert.deepStrictEqual(lines(`TextStyle(foreground: Paint()${chain}..blendMode = BlendMode.src)\n`), []);
+  assert.ok(Date.now() - started < 500, `took ${Date.now() - started} ms`);
+  assert.deepStrictEqual(lines(`TextStyle(foreground: Paint()${chain}..shader = LinearGradient(colors: c).createShader(r))\n`), [1]);
+  const spaced = Array.from({ length: 24 }, (_, i) => ` ..p${i} = x${i}`).join("");
+  const spacedStart = Date.now();
+  assert.deepStrictEqual(lines(`TextStyle(foreground: Paint()${spaced} ..blendMode = b)\n`), []);
+  assert.ok(Date.now() - spacedStart < 500, `took ${Date.now() - spacedStart} ms`);
+  assert.deepStrictEqual(lines(`TextStyle(foreground: Paint()${spaced} ..shader = LinearGradient(colors: c).createShader(r))\n`), [1]);
+  // A long run of spaces inside a value is read once, not once per space.
+  const wide = `TextStyle(foreground: Paint()..p0 = a${" ".repeat(20000)}b..blendMode = c)\n`;
+  const wideStart = Date.now();
+  assert.deepStrictEqual(lines(wide), []);
+  assert.ok(Date.now() - wideStart < 200, `took ${Date.now() - wideStart} ms`);
+});
+
 test("0xRRGGBB colors are read alongside 0xFFRRGGBB", () => {
   // Issue #42: the common Swift form Color(hex: 0x7C3AED) was missed.
   const shadow = 'Text("x").shadow(color: Color(hex: 0x7C3AED), radius: 20)\n';
