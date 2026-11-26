@@ -422,6 +422,23 @@ function closeOf(text, open) {
   return text.length;
 }
 
+// Like closeOf() for "(", but a parenthesis inside a quoted string does not count, so
+// cn("before:content-['(']", ...) still ends at its own closing parenthesis.
+function callEnd(text, open) {
+  let depth = 0;
+  let quote = null;
+  for (let i = open; i < text.length; i++) {
+    const c = text[i];
+    if (quote) {
+      if (c === "\\") i++;
+      else if (c === quote) quote = null;
+    } else if (c === '"' || c === "'" || c === "`") quote = c;
+    else if (c === "(") depth++;
+    else if (c === ")" && --depth === 0) return i + 1;
+  }
+  return text.length;
+}
+
 // The part of `rest` (the text after a gradient's constructor) during which
 // `variable` still holds that gradient: up to the end of the enclosing block,
 // or up to the variable's next assignment. A declaration of the same name in a
@@ -560,7 +577,21 @@ const rules = [
       }
       // Tailwind: bg-gradient-to-r from-violet-600 to-fuchsia-500
       for (const m of matches(/["'`][^"'`\n]*\bbg-(?:gradient|linear|radial|conic)-[^"'`\n]*["'`]/, code)) {
-        if (/\b(?:from|via|to)-(?:purple|violet|indigo|fuchsia|pink)-\d{2,3}\b/.test(m[0])) hits.push(m.index);
+        // The stops may sit in another string of the same cn(...) / clsx(...) call.
+        let scope = m[0];
+        const from = Math.max(0, m.index - 400);
+        for (const c of matches(/\b(?:cn|cx|clsx|classnames|classNames|twMerge|twJoin)\s*\(/, code.slice(from, m.index))) {
+          const open = from + c.index + c[0].length - 1;
+          const close = callEnd(code, open);
+          // The outermost call that holds the string: a nested clsx(...) keeps the outer stops.
+          if (close > m.index) {
+            scope = code.slice(open, close);
+            break;
+          }
+        }
+        // Arbitrary stops carry the color itself: from-[#7c3aed] to-[#db2777].
+        const arbitrary = [...scope.matchAll(/\b(?:from|via|to)-\[(#[0-9a-fA-F]{3,8})\]/g)].map((s) => s[1]).join(" ");
+        if (/\b(?:from|via|to)-(?:purple|violet|indigo|fuchsia|pink)-\d{2,3}\b/.test(scope) || hexColors(arbitrary, stack).some(isSlopHue)) hits.push(m.index);
       }
       return hits;
     },

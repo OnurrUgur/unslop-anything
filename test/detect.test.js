@@ -480,6 +480,28 @@ test("slop-gradient reads Android #AARRGGBB colors", () => {
   assert.deepStrictEqual(scanSource(scrim, "a.css"), []);
 });
 
+test("slop-gradient reads Tailwind arbitrary hex stops (issue #143)", () => {
+  const lines = (src, file) => scanSource(src, file).filter((f) => f.rule === "slop-gradient").map((f) => f.line);
+  assert.deepStrictEqual(lines('<div class="bg-gradient-to-r from-[#7c3aed] to-[#db2777] p-8">Hello</div>\n', "Hero.html"), [1]);
+  assert.deepStrictEqual(lines('<div className="bg-linear-to-r from-[#8b5cf6] via-[#a855f7] to-[#ec4899]" />\n', "Hero.tsx"), [1]);
+  // One purple stop is enough, as with named stops.
+  assert.deepStrictEqual(lines('<div className="bg-gradient-to-b from-[#0ea5e9] to-[#7c3aed]" />\n', "Hero.tsx"), [1]);
+  // A gradient with no purple or pink stop stays quiet.
+  assert.deepStrictEqual(lines('<div class="bg-gradient-to-r from-[#0ea5e9] to-[#22c55e] p-8">Hello</div>\n', "Hero.html"), []);
+  // Stops in another string of the same cn(...) call count; another call's do not.
+  assert.deepStrictEqual(lines('<div className={cn("bg-gradient-to-r", "from-[#7c3aed] to-[#db2777]")} />\n', "Hero.tsx"), [1]);
+  assert.deepStrictEqual(lines('<div className={clsx("bg-gradient-to-r", active && "from-violet-600", "to-pink-500")} />\n', "Hero.tsx"), [1]);
+  assert.deepStrictEqual(lines('<div className={cn("bg-gradient-to-r", "from-sky-500 to-cyan-500")} />\n', "Hero.tsx"), []);
+  assert.deepStrictEqual(lines('const a = cn("bg-gradient-to-r from-sky-500 to-cyan-500");\nconst b = cn("from-violet-600");\n', "Hero.tsx"), []);
+  // A nested class call does not hide the outer call's stops.
+  assert.deepStrictEqual(lines('<div className={cn("from-violet-600", clsx("bg-gradient-to-r", "to-cyan-500"))} />\n', "Hero.tsx"), [1]);
+  // A parenthesis inside a quoted class is not part of the call's own brackets.
+  assert.deepStrictEqual(lines('const a = cn("before:content-[\'(\']", "bg-gradient-to-r from-sky-500 to-cyan-500");\nconst b = cn("from-violet-600");\n', "Hero.tsx"), []);
+  assert.deepStrictEqual(lines('<div className={cn("after:content-[\')\']", "bg-gradient-to-r", "from-[#7c3aed]")} />\n', "Hero.tsx"), [1]);
+  // A purple outside a gradient class string is not a stop.
+  assert.deepStrictEqual(lines('<div class="bg-[#7c3aed] text-white">Hello</div>\n', "Hero.html"), []);
+});
+
 test("slop-gradient reads only the gradient's own colors (issue #67)", () => {
   const gradientLines = (src, file) =>
     scanSource(src, file).filter((f) => f.rule === "slop-gradient").map((f) => f.line);
