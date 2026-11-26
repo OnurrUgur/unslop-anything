@@ -1549,3 +1549,12 @@ test("clickable-div flags Angular (click) and Alpine x-on:click handlers", () =>
   assert.deepStrictEqual(rulesFor('<button (click)="open()">x</button>\n'), []);
   assert.deepStrictEqual(rulesFor('<button x-on:click="open = true">x</button>\n'), []);
 });
+
+test("template-theme flags create-vite's #646cff and #535bf2", () => {
+  const rulesFor = (src) => scanSource(src, "index.css").map((f) => f.rule).filter((r) => r === "template-theme");
+  assert.deepStrictEqual(rulesFor("a {\n  font-weight: 500;\n  color: #646cff;\n}\na:hover {\n  color: #535bf2;\n}\n"), ["template-theme"]);
+  assert.deepStrictEqual(rulesFor("a:hover { color: #535BF2; }\n"), ["template-theme"]);
+  assert.deepStrictEqual(rulesFor("a { color: #646CFF; }\n"), ["template-theme"]);
+  assert.deepStrictEqual(rulesFor("a { color: #646cf0; }\n"), []);
+  assert.deepStrictEqual(rulesFor("a { color: #646cffaa; }\n"), []);
+});
