@@ -90,6 +90,36 @@ test("safe-area-off flags .ignoresSafeArea(.all) forms, not backgrounds", () => 
   assert.deepStrictEqual(scanSource("VStack { }.ignoresSafeArea(edges: .top)", "a.swift"), []);
 });
 
+test("fixed-text-size skips Swift files that build for macOS only", () => {
+  const rulesOf = (src) => scanSource(src, "a.swift").filter((f) => f.rule === "fixed-text-size").map((f) => f.line);
+  const text = 'Text("Hi").font(.system(size: 13))\n';
+  // AppKit or Cocoa at the top level: the file cannot build for iOS.
+  assert.deepStrictEqual(rulesOf("import SwiftUI\nimport AppKit\n" + text), []);
+  assert.deepStrictEqual(rulesOf("import Cocoa\n" + text), []);
+  assert.deepStrictEqual(rulesOf("@preconcurrency import AppKit\n" + text), []);
+  assert.deepStrictEqual(rulesOf("import class AppKit.NSWorkspace\n" + text), []);
+  assert.deepStrictEqual(rulesOf("import AppKit.NSView\n" + text), []);
+  assert.deepStrictEqual(rulesOf("internal import AppKit\n" + text), []);
+  assert.deepStrictEqual(rulesOf("#if DEBUG\n#if os(macOS)\nlet x = 1\n#endif\n#endif\nimport AppKit\n" + text), []);
+  assert.deepStrictEqual(rulesOf("import AppKit\nlet f = NSFont.systemFont(ofSize: 13)\n" + text), []);
+  // No AppKit, or AppKit only inside #if: the file may build for iOS.
+  assert.deepStrictEqual(rulesOf("import SwiftUI\n" + text), [2]);
+  assert.deepStrictEqual(rulesOf("import SwiftUI\n#if os(macOS)\nimport AppKit\n#endif\n" + text), [5]);
+  assert.deepStrictEqual(rulesOf("#if canImport(AppKit)\nimport AppKit\n#else\nimport UIKit\n#endif\n" + text), [6]);
+  assert.deepStrictEqual(rulesOf("import SwiftUI\n#if os(iOS)\nlet x = 1\n#elseif os(macOS)\nimport AppKit\n#endif\n" + text), [7]);
+  assert.deepStrictEqual(rulesOf("#if DEBUG\n#if os(macOS)\n#endif\nimport AppKit\n#endif\n" + text), [6]);
+  // UIKit anywhere: the file may build for iOS.
+  assert.deepStrictEqual(rulesOf("import AppKit\nimport UIKit\n" + text), [3]);
+  assert.deepStrictEqual(rulesOf("import AppKit\npublic import UIKit\n" + text), [3]);
+  // A commented-out import does not count.
+  assert.deepStrictEqual(rulesOf("// import AppKit\n" + text), [2]);
+  // Other rules still run on macOS files.
+  const other = 'Text("🚀 Launch")\nScrollView { VStack { ForEach(items) { Row($0) } } }\n';
+  const expected = scanSource(other, "a.swift").map((f) => f.rule);
+  assert.ok(expected.length > 0);
+  assert.deepStrictEqual(scanSource("import AppKit\n" + other, "a.swift").map((f) => f.rule), expected);
+});
+
 test("commented-out code is ignored", () => {
   const src = '// <LinearGradient colors={["#7C3AED", "#EC4899"]} />\n/* Oops! Something went wrong */\n';
   assert.deepStrictEqual(scanSource(src, "a.tsx"), []);

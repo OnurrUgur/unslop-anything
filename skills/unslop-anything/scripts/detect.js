@@ -625,6 +625,26 @@ function gradientScope(text, start, name) {
 // ---------- rules ----------
 // Each rule gets ctx { code, stack, file } and returns indexes into code.
 
+// A Swift file that imports AppKit or Cocoa outside any #if, and never imports
+// UIKit, builds for macOS only: AppKit does not exist on iOS. macOS does not
+// support Dynamic Type for third-party apps, so a fixed size there is not a
+// tell. An import inside #if os(macOS) says nothing, since the rest of the
+// file may build for iOS.
+function macOnlySwift(code) {
+  const imports = /^[ \t]*(?:@\w+[ \t]+)*(?:(?:public|package|internal|fileprivate|private)[ \t]+)?import[ \t]+(?:(?:class|struct|enum|protocol|typealias|func|var|let)[ \t]+)?(\w+)/;
+  let depth = 0;
+  let appKit = false;
+  for (const line of code.split("\n")) {
+    if (/^[ \t]*#if\b/.test(line)) depth++;
+    else if (/^[ \t]*#endif\b/.test(line)) depth = Math.max(0, depth - 1);
+    const m = imports.exec(line);
+    if (!m) continue;
+    if (m[1] === "UIKit") return false;
+    if (depth === 0 && (m[1] === "AppKit" || m[1] === "Cocoa")) appKit = true;
+  }
+  return appKit;
+}
+
 function glowLayers(list) {
   const layers = [];
   let depth = 0;
@@ -943,6 +963,7 @@ const rules = [
     fix: "Use platform text styles (.body, MaterialTheme.typography, textTheme) or scale custom sizes (relativeTo:, UIFontMetrics, sp). Then check the screen at the largest size.",
     find({ code, stack }) {
       if (stack === "swift") {
+        if (macOnlySwift(code)) return [];
         const hits = [...matches(/\.system\(\s*size:|\.custom\(\s*"[^"]*"\s*,\s*size:\s*[\d.]+\s*\)/, code)].map((m) => m.index);
         if (!/UIFontMetrics|adjustsFontForContentSizeCategory/.test(code)) {
           for (const m of matches(/UIFont\.(?:systemFont|boldSystemFont)\(\s*ofSize:|UIFont\(\s*name:/, code)) hits.push(m.index);
