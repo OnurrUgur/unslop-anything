@@ -884,6 +884,42 @@ test("clickable-div requires both an interactive role and tabIndex on div/span/l
   assert.deepStrictEqual(rulesFor('<div role="button" tabindex="0" on:click={open}>Open</div>\n', "A.svelte"), []);
 });
 
+test("tagEnd skips strings inside an attribute expression", () => {
+  const imgs = (code) => scanSource(code, "A.tsx").filter((f) => f.rule === "img-no-alt");
+  assert.deepStrictEqual(imgs('<img onLoad={() => loaded("}")} alt="Photo" src={src} />\n').length, 0);
+  // nor does a quote inside a regex literal in an expression
+  assert.deepStrictEqual(imgs('<img onLoad={() => /"/.test(value)} alt="Photo" src={src} />\n').length, 0);
+});
+
+test("clickable-div catches lowercase onclick in Svelte 5 and plain HTML (issue #141)", () => {
+  const lines = (src, file) => scanSource(src, file).filter((f) => f.rule === "clickable-div").map((f) => f.line);
+  const svelte = '<script>\n  let open = $state(false);\n</script>\n\n<div class="card" onclick={() => (open = true)}>Details</div>\n';
+  assert.deepStrictEqual(lines(svelte, "Card.svelte"), [5]);
+  assert.deepStrictEqual(lines('<div class="card" onclick="openCard()">Details</div>\n', "page.html"), [1]);
+  assert.deepStrictEqual(lines('<span onclick="toggle()">More</span>\n', "page.html"), [1]);
+  // The exemptions still apply: an anchor with href, or an interactive role and tabindex.
+  assert.deepStrictEqual(lines('<a href="/details" onclick="track()">Details</a>\n', "page.html"), []);
+  assert.deepStrictEqual(lines('<a href={url} onclick={track}>Details</a>\n', "Card.svelte"), []);
+  assert.deepStrictEqual(lines('<div role="button" tabindex="0" onclick={open}>Open</div>\n', "Card.svelte"), []);
+  // Event modifiers: Vue @click.stop, Svelte 4 on:click|preventDefault.
+  assert.deepStrictEqual(lines('<div @click.stop="open">x</div>\n', "A.vue"), [1]);
+  assert.deepStrictEqual(lines('<div v-on:click.prevent.self="open">x</div>\n', "A.vue"), [1]);
+  assert.deepStrictEqual(lines("<div on:click|preventDefault={open}>x</div>\n", "A.svelte"), [1]);
+  assert.deepStrictEqual(lines('<div role="button" tabindex="0" @click.stop="open">x</div>\n', "A.vue"), []);
+  // An arrow function or a quoted > in an earlier attribute does not hide the handler.
+  assert.deepStrictEqual(lines("<div onKeyDown={(e) => handleKey(e)} onClick={open}>Open</div>\n", "A.tsx"), [1]);
+  assert.deepStrictEqual(lines("<div on:keydown={(e) => handleKey(e)} onclick={open}>Open</div>\n", "A.svelte"), [1]);
+  assert.deepStrictEqual(lines('<div title="a > b" onclick="go()">x</div>\n', "page.html"), [1]);
+  assert.deepStrictEqual(lines('<a title="a > b" href="/x" onclick="go()">x</a>\n', "page.html"), []);
+  // A handler of a nested element inside an attribute belongs to that element.
+  assert.deepStrictEqual(lines('<div render={<span role="button" tabIndex={0} onClick={x}>Open</span>} />\n', "A.tsx"), []);
+  assert.deepStrictEqual(lines('<div render={\n  <span onClick={x}>Open</span>\n} />\n', "A.tsx"), [2]);
+  // A brace inside a quoted value is text, not an expression.
+  assert.deepStrictEqual(lines('<div title="{" onClick={x}>Open</div>\n', "A.tsx"), [1]);
+  // A real button with onclick is fine.
+  assert.deepStrictEqual(lines('<button onclick="openCard()">Details</button>\n', "page.html"), []);
+});
+
 test("focus-removed flags a bare focus:outline-none, not one with a ring replacement", () => {
   const rulesFor = (src) => scanSource(src, "a.tsx").map((f) => f.rule);
   assert.deepStrictEqual(rulesFor('<input className="focus:outline-none" />\n'), ["focus-removed"]);
