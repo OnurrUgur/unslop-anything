@@ -1282,6 +1282,21 @@ const rules = [
     fix: "Use a verb and an object: \"Save address\", \"Send invoice\", \"Book table\".",
     find({ code }) {
       const hits = [...matches(/(?:title|label|text)\s*[=:]\s*\{?\s*["'](?:Submit|Click here|Tap here)["']|>\s*(?:Submit|Click here|Tap here)\s*</i, code)].map((m) => m.index);
+      // An <input type="submit|button"> carries its label in value=. The tag is read to
+      // its real end, so `onClick={() => go()}` or `disabled={n > 0}` does not cut it, and
+      // other attributes' quoted values (`title="type=submit"`) are left out.
+      for (const m of matches(/<input\b/i, code)) {
+        const end = tagEnd(code, m.index + m[0].length);
+        const tag = code
+          .slice(m.index, end === -1 ? undefined : end)
+          .replace(/(?<![\w-])(?!type\b|value\b)[\w:@.-]+\s*=\s*(?:"[^"]*"|'[^']*')/gi, "");
+        if (
+          /(?<![\w-])type\s*=\s*\{?\s*(["']?)(?:submit|button)\1(?![\w-])/i.test(tag) &&
+          /(?<![\w-])value\s*=\s*(?:\{\s*(["'`])(?:Submit|Click here|Tap here)\1\s*\}|(["'])(?:Submit|Click here|Tap here)\2|Submit(?=\s|\/?$))/i.test(tag)
+        ) {
+          hits.push(m.index);
+        }
+      }
       // Native buttons: the label only counts inside a button call, so a
       // bare Text("Submit") used as a heading or field label stays quiet.
       // Button("Submit") { save() } (Swift), Button(onClick = {}) {
