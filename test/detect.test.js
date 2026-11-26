@@ -1558,3 +1558,22 @@ test("template-theme flags create-vite's #646cff and #535bf2", () => {
   assert.deepStrictEqual(rulesFor("a { color: #646cf0; }\n"), []);
   assert.deepStrictEqual(rulesFor("a { color: #646cffaa; }\n"), []);
 });
+
+test("slop-gradient reads rgb() and hsl() stops", () => {
+  const rulesFor = (src) => scanSource(src, "a.css").map((f) => f.rule).filter((r) => r === "slop-gradient");
+  const flagged = [
+    ".a { background: linear-gradient(rgb(124, 58, 237), rgb(219, 39, 119)); }\n",
+    ".a { background: linear-gradient(to right, rgba(124, 58, 237, 0.8), #0ea5e9); }\n",
+    ".a { background: linear-gradient(rgb(124 58 237 / 50%), white); }\n",
+    ".a { background: linear-gradient(rgb(48.6% 22.7% 92.9%), white); }\n",
+    ".a { background: linear-gradient(hsl(262, 83%, 58%), white); }\n",
+    ".a { background: radial-gradient(hsla(262deg 83% 58% / 0.5), white); }\n",
+  ];
+  for (const src of flagged) assert.deepStrictEqual(rulesFor(src), ["slop-gradient"], src);
+  const quiet = [
+    ".a { background: linear-gradient(rgb(14, 165, 233), rgb(34, 197, 94)); }\n",
+    ".a { background: linear-gradient(hsl(199 89% 48%), hsl(142 71% 45%)); }\n",
+    ".a { background: linear-gradient(rgb(0, 0, 0), rgb(255, 255, 255)); }\n",
+  ];
+  for (const src of quiet) assert.deepStrictEqual(rulesFor(src), [], src);
+});
